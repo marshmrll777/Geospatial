@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoGuard // InSAR Hazard Intelligence Platform</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <style>
+        /* ==========================================================================
+           1. CORE PALETTE & VARIABLE DICTIONARY
+           ========================================================================== */
+        :root {
+            --bg-base: #06050c;
+            --bg-card: rgba(13, 10, 28, 0.75);
+            --neon-cyan: #00f2fe;
+            --neon-magenta: #ff007f;
+            --text-primary: #e2e2ff;
+            --text-muted: #79799e;
+            --border-glass: rgba(0, 242, 254, 0.18);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Ambient Neon Gradient Background Blobs */
+        .glow-bg-cyan {
+            position: absolute;
+            top: -10%;
+            left: -10%;
+            width: 50vw;
+            height: 50vh;
+            background: radial-gradient(circle, rgba(0, 242, 254, 0.08) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .glow-bg-magenta {
+            position: absolute;
+            bottom: -10%;
+            right: -10%;
+            width: 60vw;
+            height: 60vh;
+            background: radial-gradient(circle, rgba(255, 0, 127, 0.06) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        /* ==========================================================================
+           2. FLEXBOX LAYOUT & SIDEBAR CONTROL MATRIX
+           ========================================================================== */
+        .dashboard-container {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sidebar {
+            width: 320px;
+            background-color: #030206;
+            border-right: 2px solid var(--neon-cyan);
+            padding: 30px 24px;
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+
+        .sidebar-header h2 {
+            font-size: 1.1rem;
+            letter-spacing: 1.5px;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+        }
+
+        .pulse-icon {
+            width: 8px;
+            height: 8px;
+            background-color: var(--neon-cyan);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--neon-cyan);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 35px;
+        }
+
+        .control-group {
+            margin-bottom: 30px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+            color: #b0b0d6;
+        }
+
+        .slider-input {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: #181528;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .slider-input::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 8px var(--neon-cyan);
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .slider-input::-webkit-slider-thumb:hover {
+            background: var(--neon-cyan);
+            box-shadow: 0 0 12px var(--neon-cyan);
+        }
+
+        /* ==========================================================================
+           3. MAIN PANEL WORKSPACE & GRID STRUCTURE
+           ========================================================================== */
+        .main-content {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .dashboard-title {
+            font-size: 1.8rem;
+            letter-spacing: 1px;
+            text-shadow: 0 0 12px var(--neon-cyan);
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .dashboard-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 25px;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 5fr 7fr;
+            gap: 30px;
+            flex: 1;
+        }
+
+        .section-title {
+            font-size: 1rem;
+            letter-spacing: 1px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        /* Structural Glassmorphic Containers */
+        .card {
+            border-radius: 14px;
+            padding: 24px;
+            margin-bottom: 25px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .glass-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Cyberpunk Active Dynamic Panels */
+        .critical-glow {
+            background: rgba(32, 6, 20, 0.75);
+            border: 1px solid var(--neon-magenta);
+            box-shadow: 0 0 25px rgba(255, 0, 127, 0.25);
+        }
+
+        .stable-glow {
+            background: rgba(5, 26, 32, 0.75);
+            border: 1px solid var(--neon-cyan);
+            box-shadow: 0 0 25px rgba(0, 242, 254, 0.2);
+        }
+
+        .probability-display {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #fff;
+            margin: 14px 0;
+        }
+
+        .muted-text {
+            font-size: 0.9rem;
+            color: #b0b0d1;
+            line-height: 1.6;
+        }
+
+        .card-subtitle {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 15px;
+            letter-spacing: 0.5px;
+        }
+
+        .telemetry-list {
+            list-style: none;
+        }
+
+        .telemetry-list li {
+            margin-bottom: 12px;
+            font-size: 0.95rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            padding-bottom: 6px;
+        }
+
+        .telemetry-list li strong {
+            color: #fff;
+            float: right;
+        }
+
+        /* Map Framework Canvas Layer Configuration */
+        .map-wrapper {
+            height: calc(100% - 40px);
+            padding: 0px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #map-canvas {
+            width: 100%;
+            height: 100%;
+            min-height: 480px;
+            background-color: #07060b !important;
+            border-radius: 14px;
+        }
+
+        .map-overlay {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            background: rgba(4, 3, 8, 0.95);
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            letter-spacing: 1px;
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: #fff;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+
+        /* Custom Leaflet Vector Pulse Markers Style overrides */
+        .leaflet-marker-icon-custom {
+            border-radius: 50%;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .leaflet-marker-icon-custom::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            animation: radar-wave 1.8s infinite linear;
+            box-sizing: border-box;
+        }
+
+        .point-stable-style {
+            background: var(--neon-cyan);
+            box-shadow: 0 0 14px var(--neon-cyan);
+            border: 2px solid #ffffff;
+        }
+        .point-stable-style::after {
+            border: 1px solid var(--neon-cyan);
+        }
+
+        .point-critical-style {
+            background: var(--neon-magenta);
+            box-shadow: 0 0 18px var(--neon-magenta);
+            border: 2px solid #ffffff;
+            animation: tremor-shiver 0.15s infinite linear;
+        }
+        .point-critical-style::after {
+            border: 1px solid var(--neon-magenta);
+            animation-duration: 1.2s;
+        }
+
+        /* Dark Themed Popup Overlay Window Fixes */
+        .leaflet-popup-content-wrapper {
+            background: rgba(10, 8, 20, 0.95) !important;
+            color: #e2e2ff !important;
+            border: 1px solid rgba(0, 242, 254, 0.4);
+            box-shadow: 0 0 15px rgba(0,0,0,0.6) !important;
+            border-radius: 8px !important;
+        }
+        .leaflet-popup-tip {
+            background: rgba(10, 8, 20, 0.95) !important;
+            border-left: 1px solid rgba(0, 242, 254, 0.4);
+            border-bottom: 1px solid rgba(0, 242, 254, 0.4);
+        }
+        .leaflet-popup-content h3 {
+            margin-bottom: 6px;
+            font-size: 0.95rem;
+        }
+        .leaflet-popup-content p {
+            font-size: 0.8rem;
+            line-height: 1.4;
+            color: #a4a4c1;
+        }
+
+        /* ==========================================================================
+           4. SYSTEM KEYFRAME ANIMATION HOOKS
+           ========================================================================== */
+        @keyframes pulse-glow {
+            0% { transform: scale(0.95); opacity: 0.5; box-shadow: 0 0 4px var(--neon-cyan); }
+            50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 12px var(--neon-cyan); }
+            100% { transform: scale(0.95); opacity: 0.5; box-shadow: 0 0 4px var(--neon-cyan); }
+        }
+
+        @keyframes radar-wave {
+            0% { transform: scale(1); opacity: 0.8; }
+            100% { transform: scale(3.5); opacity: 0; }
+        }
+
+        @keyframes tremor-shiver {
+            0% { transform: translate(0, 0); }
+            25% { transform: translate(-0.5px, 0.5px); }
+            50% { transform: translate(0.5px, -0.5px); }
+            75% { transform: translate(-0.5px, -0.5px); }
+            100% { transform: translate(0, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glow-bg-cyan"></div>
+    <div class="glow-bg-magenta"></div>
+
+    <div class="dashboard-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="pulse-icon"></span>
+                <h2>VECTOR CONTROL</h2>
+            </div>
+            <p class="sidebar-subtitle">Adjust real-time sensory variables</p>
+            
+            <div class="control-group">
+                <div class="slider-label">
+                    <span>Slope Inclination</span>
+                    <span id="slope-val" class="neon-text-cyan">25°</span>
+                </div>
+                <input type="range" id="slope" min="5" max="50" value="25" step="1" class="slider-input">
+            </div>
+
+            <div class="control-group">
+                <div class="slider-label">
+                    <span>Soil Moisture Content</span>
+                    <span id="moisture-val" class="neon-text-cyan">45%</span>
+                </div>
+                <input type="range" id="moisture" min="10" max="80" value="45" step="1" class="slider-input">
+            </div>
+
+            <div class="control-group">
+                <div class="slider-label">
+                    <span>InSAR Ground Velocity</span>
+                    <span id="insar-val" class="neon-text-magenta">-5 mm/yr</span>
+                </div>
+                <input type="range" id="insar" min="-30" max="5" value="-5" step="1" class="slider-input">
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="main-header">
+                <h1 class="dashboard-title">🛰️ GEOGUARD: InSAR HAZARD PLATFORM</h1>
+                <p class="dashboard-subtitle">Advanced Landslide Susceptibility Engine // Uttarakhand Grid Vector</p>
+            </header>
+
+            <div class="grid-layout">
+                <div class="col-left">
+                    <h3 class="section-title text-cyan">🔮 Diagnostic Vector</h3>
+                    
+                    <div id="risk-card" class="card critical-glow">
+                        <h4 id="risk-status" class="neon-text-magenta">⚠️ CRITICAL LANDSLIDE RISK ALERT</h4>
+                        <div class="probability-display">
+                            Probability: <span id="prob-percentage">65.3%</span>
+                        </div>
+                        <p id="risk-desc" class="muted-text">Active ground subsidence detected. Slope parameters suggest systemic shear failure constraints under hydro-saturation.</p>
+                    </div>
+
+                    <div class="card glass-card">
+                        <h4 class="card-subtitle">Operational Array Input Vector</h4>
+                        <ul class="telemetry-list">
+                            <li>📐 Slope Angle Matrix: <strong id="tele-slope">25°</strong></li>
+                            <li>💧 Moisture Saturation Index: <strong id="tele-moisture">45%</strong></li>
+                            <li>📡 Radar Line-of-Sight Shift: <strong id="tele-insar">-5 mm/year</strong></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="col-right">
+                    <h3 class="section-title text-cyan">🗺️ Spatial Hazard Projection</h3>
+                    <div class="card glass-card map-wrapper">
+                        <div id="map-canvas"></div>
+                        <div id="map-telemetry" class="map-overlay">
+                            <span>GRID LAYER: SECURE // PROCESSING...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <script>
+        // DOM Extraction Cache Nodes
+        const slopeSlider = document.getElementById('slope');
+        const moistureSlider = document.getElementById('moisture');
+        const insarSlider = document.getElementById('insar');
+
+        const slopeVal = document.getElementById('slope-val');
+        const moistureVal = document.getElementById('moisture-val');
+        const insarVal = document.getElementById('insar-val');
+
+        const teleSlope = document.getElementById('tele-slope');
+        const teleMoisture = document.getElementById('tele-moisture');
+        const teleInsar = document.getElementById('tele-insar');
+
+        const riskCard = document.getElementById('risk-card');
+        const riskStatus = document.getElementById('risk-status');
+        const probPercentage = document.getElementById('prob-percentage');
+        const riskDesc = document.getElementById('risk-desc');
+        
+        const mapTelemetry = document.getElementById('map-telemetry');
+
+        // Global Map Reference Engine Variable
+        let map;
+        let leafletMarkersArray = [];
+
+        // Geographically Accurate Coordinate Grid Array targeting Uttarakhand Hotspots
+        const geomorphicNodes = [
+            { id: 1, name: "Rudraprayag Sector Node", lat: 30.2842, lon: 78.9811, baseRiskFactor: 0.85 },
+            { id: 2, name: "Kedarnath Access Route Ridge", lat: 30.6425, lon: 79.0644, baseRiskFactor: 0.92 },
+            { id: 3, name: "Chamoli Foothill Grid", lat: 30.4044, lon: 79.3312, baseRiskFactor: 0.65 },
+            { id: 4, name: "Uttarkashi Baseline Station", lat: 30.7268, lon: 78.4354, baseRiskFactor: 0.50 },
+            { id: 5, name: "Dehradun Outpost Range", lat: 30.3165, lon: 78.0322, baseRiskFactor: 0.25 }
+        ];
+
+        // Initialize Genuine Open-Source Interactive Map Base
+        function initGeospatialMap() {
+            // Centers map coordinate frame dynamically onto Uttarakhand region
+            map = L.map('map-canvas', {
+                center: [30.45, 78.85],
+                zoom: 8.5,
+                zoomControl: true,
+                attributionControl: false
+            });
+
+            // Injection of Premium Dark CartoDB Raster Layer Tiles
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                maxZoom: 19
+            }).addTo(map);
+
+            // Construct markers from array definitions
+            geomorphicNodes.forEach(node => {
+                // Initialize clean divIcon placeholders capable of taking styling rules
+                const customIcon = L.divIcon({
+                    className: 'leaflet-marker-icon-custom point-stable-style',
+                    iconSize: [14, 14],
+                    iconAnchor: [7, 7]
+                });
+
+                const marker = L.marker([node.lat, node.lon], { icon: customIcon }).addTo(map);
+                
+                // Inject real geographic descriptions directly inside HTML popup binders
+                const popupContent = `
+                    <div style="font-family:sans-serif;">
+                        <h3 class="text-cyan" style="margin:0 0 4px 0; font-size:14px;">${node.name}</h3>
+                        <p style="margin:0; font-size:11px; color:#aaa;">Latitude: ${node.lat}</p>
+                        <p style="margin:0 0 6px 0; font-size:11px; color:#aaa;">Longitude: ${node.lon}</p>
+                        <p style="margin:0; font-size:12px; color:#fff;">Local Threat Matrix Level: <span id="popup-risk-${node.id}" style="font-weight:bold;">--</span></p>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+
+                // Cache markers to handle state mutation updates later on input loops
+                leafletMarkersArray.push({
+                    id: node.id,
+                    instance: marker,
+                    baseRisk: node.baseRiskFactor
+                });
+            });
+        }
+
+        // Mathematical Evaluation Matrix Loop
+        function evaluateSusceptibility() {
+            const slope = parseFloat(slopeSlider.value);
+            const moisture = parseFloat(moistureSlider.value);
+            const insar = parseFloat(insarSlider.value);
+
+            // Mutate User Interface Values Strings
+            slopeVal.innerText = `${slope}°`;
+            moistureVal.innerText = `${moisture}%`;
+            insarVal.innerText = `${insar} mm/yr`;
+
+            teleSlope.innerText = `${slope}°`;
+            teleMoisture.innerText = `${moisture}%`;
+            teleInsar.innerText = `${insar} mm/year`;
+
+            // Calculate Mathematical Risk Function Metrics
+            let baseScore = (slope * 0.42) + (moisture * 0.35) + (Math.abs(insar) * 0.65);
+            let probability = Math.min(Math.max(baseScore, 4.2), 99.1); 
+
+            probPercentage.innerText = `${probability.toFixed(1)}%`;
+
+            // Operational Threshold Panel Mutations
+            if (probability >= 55) {
+                riskCard.className = 'card critical-glow';
+                riskStatus.innerText = '⚠️ CRITICAL LANDSLIDE RISK ALERT';
+                riskStatus.className = 'neon-text-magenta';
+                riskDesc.innerText = 'Active ground subsidence detected via SAR interferometry. Slope vectors indicate systemic shear structural failure parameters.';
+                mapTelemetry.innerHTML = `<span>STATUS: <span style="color:var(--neon-magenta)">CRITICAL SCANS RUNNING</span> // SHIFT: ${insar}mm/yr</span>`;
+            } else {
+                riskCard.className = 'card stable-glow';
+                riskStatus.innerText = '🛡️ STABLE GEOMORPHIC PROFILE';
+                riskStatus.className = 'neon-text-cyan';
+                riskDesc.innerText = 'Sensory baseline limits within normal threshold boundaries. Satellite scatterometer arrays reflect uniform slope integrity metrics.';
+                mapTelemetry.innerHTML = `<span>STATUS: <span style="color:var(--neon-cyan)">STABLE BASELINE TRACKING</span> // MATRIX SECURE</span>`;
+            }
+
+            // Loop through map tracking elements to re-scale sizes and swap color domains
+            leafletMarkersArray.forEach(item => {
+                const markerElement = item.instance.getElement();
+                
+                // Process localized metrics safely (Fixed structural breakdown logic syntax)
+                let calculatedNodeRisk = Math.min(probability * item.baseRisk * 1.15, 100);
+                
+                // Dynamically modify tracking marker bubble size limits
+                let dynamicDiameter = Math.max(10, Math.min(32, (slope * 0.4) * item.baseRisk + 8));
+                
+                if (markerElement) {
+                    markerElement.style.width = `${dynamicDiameter}px`;
+                    markerElement.style.height = `${dynamicDiameter}px`;
+                    
+                    // Remap spatial class identifiers
+                    if (calculatedNodeRisk >= 52) {
+                        markerElement.className = 'leaflet-marker-icon leaflet-zoom-animated leaflet-interactive leaflet-marker-icon-custom point-critical-style';
+                    } else {
+                        markerElement.className = 'leaflet-marker-icon leaflet-zoom-animated leaflet-interactive leaflet-marker-icon-custom point-stable-style';
+                    }
+                }
+
+                // Handle string data insertion update elements directly if popup layer stays opened
+                item.instance.on('popupopen', () => {
+                    const labelRef = document.getElementById(`popup-risk-${item.id}`);
+                    if (labelRef) {
+                        labelRef.innerText = `${calculatedNodeRisk.toFixed(1)}%`;
+                        labelRef.style.color = calculatedNodeRisk >= 52 ? 'var(--neon-magenta)' : 'var(--neon-cyan)';
+                    }
+                });
+            });
+        }
+
+        // Add Active Input Node Observers
+        slopeSlider.addEventListener('input', evaluateSusceptibility);
+        moistureSlider.addEventListener('input', evaluateSusceptibility);
+        insarSlider.addEventListener('input', evaluateSusceptibility);
+
+        // Bootstrap Runtime
+        initGeospatialMap();
+        evaluateSusceptibility();
+    </script>
+</body>
+</html>
